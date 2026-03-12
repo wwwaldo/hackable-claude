@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { Fact } from '../factcache'
+import { MemoryBank, MemoryEntry } from '../memorybank'
 import type { Theme } from '../theme'
 
 interface Message {
@@ -27,12 +28,16 @@ interface ChatPaneProps {
   model:                    string
   theme:                    Theme
   onToggleTheme:            () => void
+  memoryBank?:              MemoryBank
+  onAddMemory?:             (label: string, content: string, category?: 'conversation' | 'insight' | 'code' | 'reference' | 'other') => Promise<string>
+  onSearchMemory?:          (query: string) => MemoryEntry[]
 }
 
 export function ChatPane({
   messages, streaming, streamText, streamThinking, extendedReasoning, onToggleExtendedReasoning,
   onSend, onDeleteMsg, onEditMsg, onClearSession, onClearMessages,
   apiKey, onApiKeySet, model, theme, onToggleTheme,
+  memoryBank, onAddMemory, onSearchMemory,
 }: ChatPaneProps) {
   const [input,      setInput]      = useState('')
   const [editingId,  setEditingId]  = useState<string | null>(null)
@@ -75,6 +80,13 @@ export function ChatPane({
     setShowThinking(prev => ({ ...prev, [msgId]: !prev[msgId] }))
   }
 
+  // Quick memory actions for messages
+  async function saveToMemory(msg: Message, category: 'conversation' | 'insight' | 'code' | 'reference' | 'other' = 'conversation') {
+    if (!onAddMemory) return
+    const label = `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content.slice(0, 50)}${msg.content.length > 50 ? '...' : ''}`
+    await onAddMemory(label, msg.content, category)
+  }
+
   return (
     <div style={{
       flex: 1,
@@ -109,6 +121,21 @@ export function ChatPane({
             color: 'var(--text2)',
             letterSpacing: '0.08em',
           }}>{model}</span>
+          {memoryBank && (
+            <span style={{
+              marginLeft: 8,
+              fontSize: 9,
+              color: '#8b5cf6',
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              background: '#8b5cf611',
+              padding: '1px 4px',
+              borderRadius: 2,
+              border: '1px solid #8b5cf633',
+            }}>
+              🧠 Memory Active
+            </span>
+          )}
         </div>
 
         <div style={{ display: 'flex', gap: 8, WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
@@ -259,6 +286,19 @@ export function ChatPane({
                 🧠 Extended reasoning enabled
               </div>
             )}
+            {memoryBank && (
+              <div style={{ 
+                fontSize: 10, 
+                color: '#8b5cf6', 
+                textAlign: 'center',
+                padding: '6px 12px',
+                background: '#8b5cf611',
+                borderRadius: 4,
+                border: '1px solid #8b5cf633',
+              }}>
+                🧠 Memory Bank active
+              </div>
+            )}
           </div>
         )}
 
@@ -383,6 +423,20 @@ export function ChatPane({
                   onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
                   onMouseLeave={e => (e.currentTarget.style.opacity = '0')}
                 >
+                  {memoryBank && onAddMemory && (
+                    <button
+                      onClick={() => saveToMemory(msg)}
+                      title="Save to Memory"
+                      style={{ 
+                        fontSize: 10, 
+                        color: '#8b5cf6', 
+                        padding: '1px 5px', 
+                        border: '1px solid #8b5cf633', 
+                        borderRadius: 2,
+                        background: '#8b5cf611',
+                      }}
+                    >🧠</button>
+                  )}
                   <button
                     onClick={() => startEdit(msg)}
                     title="Edit"
@@ -526,6 +580,7 @@ export function ChatPane({
           {!apiKey && <span style={{ color: 'var(--danger)' }}>Set API key to chat · </span>}
           {input.length > 0 && <span>~{Math.ceil(input.length / 4)} tok · </span>}
           {extendedReasoning && <span style={{ color: '#9333ea' }}>🧠 extended reasoning · </span>}
+          {memoryBank && <span style={{ color: '#8b5cf6' }}>🧠 memory active · </span>}
           shift+enter for newline
         </div>
       </div>

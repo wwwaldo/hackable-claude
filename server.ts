@@ -12,6 +12,7 @@ const __dirname    = path.dirname(fileURLToPath(import.meta.url))
 const PORT         = 3001
 const SESSION_DIR  = path.join(os.homedir(), '.hackable-claude')
 const SESSION_FILE = path.join(SESSION_DIR, 'session.json')
+const MEMORY_DIR   = path.join(SESSION_DIR, 'memorybank')
 
 const ALLOWED_EXTENSIONS = ['.ts', '.tsx', '.css', '.json', '.html', '.md']
 const BLOCKED_PATHS      = ['node_modules', 'dist', '.git', '.backups']
@@ -212,7 +213,130 @@ app.post('/api/messages', (req, res) => {
   res.json({ ok: true, version: messagesVersion, count: messages.length })
 })
 
+// ── Routes: MemoryBank ──────────────────────────────────────
+
+// List all memory files
+app.get('/memorybank/list', (_req, res) => {
+  try {
+    if (!fs.existsSync(MEMORY_DIR)) {
+      fs.mkdirSync(MEMORY_DIR, { recursive: true })
+      return res.json([])
+    }
+    
+    const files = fs.readdirSync(MEMORY_DIR)
+      .filter(name => name.endsWith('.json'))
+      .map(name => name.replace('.json', ''))
+    
+    res.json(files)
+  } catch (e) {
+    console.error('[memorybank] list error:', e)
+    res.status(500).json({ error: String(e) })
+  }
+})
+
+// Read a memory entry
+app.get('/memorybank/read/:id', (req, res) => {
+  try {
+    const { id } = req.params
+    const filePath = path.join(MEMORY_DIR, `${id}.json`)
+    
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: `Memory entry ${id} not found` })
+    }
+    
+    const content = fs.readFileSync(filePath, 'utf-8')
+    const entry = JSON.parse(content)
+    
+    res.json(entry)
+  } catch (e) {
+    console.error(`[memorybank] read error for ${req.params.id}:`, e)
+    res.status(500).json({ error: String(e) })
+  }
+})
+
+// Save a memory entry
+app.post('/memorybank/save/:id', (req, res) => {
+  try {
+    const { id } = req.params
+    const entry = req.body
+    
+    // Ensure directory exists
+    if (!fs.existsSync(MEMORY_DIR)) {
+      fs.mkdirSync(MEMORY_DIR, { recursive: true })
+    }
+    
+    const filePath = path.join(MEMORY_DIR, `${id}.json`)
+    fs.writeFileSync(filePath, JSON.stringify(entry, null, 2), 'utf-8')
+    
+    console.log(`[memorybank] saved ${id} (${entry.tokens || 0} tokens)`)
+    res.json({ ok: true })
+  } catch (e) {
+    console.error(`[memorybank] save error for ${req.params.id}:`, e)
+    res.status(500).json({ error: String(e) })
+  }
+})
+
+// Delete a memory entry
+app.delete('/memorybank/delete/:id', (req, res) => {
+  try {
+    const { id } = req.params
+    const filePath = path.join(MEMORY_DIR, `${id}.json`)
+    
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath)
+      console.log(`[memorybank] deleted ${id}`)
+    }
+    
+    res.json({ ok: true })
+  } catch (e) {
+    console.error(`[memorybank] delete error for ${req.params.id}:`, e)
+    res.status(500).json({ error: String(e) })
+  }
+})
+
+// Get memory stats
+app.get('/memorybank/stats', (_req, res) => {
+  try {
+    if (!fs.existsSync(MEMORY_DIR)) {
+      return res.json({
+        totalEntries: 0,
+        totalTokens: 0,
+        totalSize: 0
+      })
+    }
+    
+    const files = fs.readdirSync(MEMORY_DIR).filter(name => name.endsWith('.json'))
+    let totalTokens = 0
+    let totalSize = 0
+    
+    for (const file of files) {
+      const filePath = path.join(MEMORY_DIR, file)
+      const stat = fs.statSync(filePath)
+      totalSize += stat.size
+      
+      try {
+        const content = fs.readFileSync(filePath, 'utf-8')
+        const entry = JSON.parse(content)
+        totalTokens += entry.tokens || 0
+      } catch (e) {
+        console.error(`Error reading memory file ${file}:`, e)
+      }
+    }
+    
+    res.json({
+      totalEntries: files.length,
+      totalTokens,
+      totalSize,
+      memoryDir: MEMORY_DIR
+    })
+  } catch (e) {
+    console.error('[memorybank] stats error:', e)
+    res.status(500).json({ error: String(e) })
+  }
+})
+
 app.listen(PORT, () => {
   console.log(`[file-api] http://localhost:${PORT}`)
   console.log(`[session]  ${SESSION_FILE}`)
+  console.log(`[memorybank] ${MEMORY_DIR}`)
 })

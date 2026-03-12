@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { FactCache, Fact, makeId, CATEGORY_COLORS } from './factcache'
+import { MemoryBank } from './memorybank'
 import { ChatPane } from './components/ChatPane'
 import { ContextPane } from './components/ContextPane'
 import { ToolPane, ToolEvent } from './components/ToolPane'
@@ -20,10 +21,15 @@ export default function App() {
     localStorage.getItem('extendedReasoning') === 'true'
   )
   const [apiTokens, setApiTokens]              = useState<number | undefined>()
+  const [memoryInitialized, setMemoryInitialized] = useState(false)
+  const [, forceUpdate] = useState(0)
 
-  const cache    = useRef(new FactCache()).current
-  const abortRef = useRef<AbortController | null>(null)
+  const cache      = useRef(new FactCache()).current
+  const memoryBank = useRef(new MemoryBank()).current
+  const abortRef   = useRef<AbortController | null>(null)
   const { theme, toggleTheme } = useTheme()
+
+  function refresh() { forceUpdate(n => n + 1) }
 
   // Persist API key
   useEffect(() => {
@@ -36,21 +42,56 @@ export default function App() {
     localStorage.setItem('extendedReasoning', extendedReasoning.toString())
   }, [extendedReasoning])
 
-  // Check server status
+  // Check server status (separate from memory initialization)
   useEffect(() => {
     let mounted = true
-    async function ping() {
+    async function pingServer() {
       try {
         const r = await fetch(`${FILE_API}/api/files`)
-        if (mounted) setServerOnline(r.ok)
+        if (mounted) {
+          setServerOnline(r.ok)
+        }
       } catch {
         if (mounted) setServerOnline(false)
       }
     }
-    ping()
-    const interval = setInterval(ping, 5000)
+    pingServer()
+    const interval = setInterval(pingServer, 5000)
     return () => { mounted = false; clearInterval(interval) }
   }, [])
+
+  // Initialize memory bank once when server becomes available
+  useEffect(() => {
+    if (serverOnline && !memoryInitialized) {
+      async function initMemory() {
+        await memoryBank.initialize()
+        syncMemoryToCache()
+        refresh()
+        setMemoryInitialized(true)
+        console.log('Memory bank initialized')
+      }
+      initMemory()
+    }
+  }, [serverOnline, memoryInitialized])
+
+  // Sync memory entries to cache for context display
+  const syncMemoryToCache = useCallback(() => {
+    cache.clearByType('memory')
+    const entries = memoryBank.getEntries()
+    console.log(`Syncing ${entries.length} memory entries to cache`)
+    for (const entry of entries) {
+      cache.set(new Fact({
+        id: entry.id,
+        label: entry.label,
+        content: entry.content,
+        type: 'memory',
+        category: 'Memory Bank',
+        tokens: entry.tokens,
+        pinned: false,
+        color: CATEGORY_COLORS['Memory Bank'] || '#8b5cf6',
+      }))
+    }
+  }, [cache, memoryBank])
 
   // Load session on startup
   useEffect(() => {
@@ -121,6 +162,7 @@ export default function App() {
 
   useEffect(() => {
     syncMessagesToCache(messages)
+    refresh()
   }, [messages, syncMessagesToCache])
 
   async function handleSend(text: string) {
@@ -189,6 +231,22 @@ export default function App() {
               pinned: false,
               color: CATEGORY_COLORS['Tool Activity'],
             }))
+
+            // Handle file summaries for read_file tool
+            if (result.name === 'read_file' && result.fileSummary) {
+              const { path, summary, tokens } = result.fileSummary
+              cache.set(new Fact({
+                id: makeId('file-summary'),
+                label: `File: ${path}`,
+                content: `**Path:** ${path}\\n\\n**Summary:** ${summary}`,
+                type: 'file-summary',
+                category: 'File Summary',
+                tokens: tokens,
+                pinned: false,
+                color: CATEGORY_COLORS['File Summary'],
+              }))
+            }
+            refresh()
           },
           onThinking: (thinking) => {
             setStreamThinking(prev => prev + thinking)
@@ -235,6 +293,7 @@ export default function App() {
   function handleDeleteMsg(id: string) {
     setMessages(prev => prev.filter(msg => msg.id !== id))
     cache.delete(id)
+    refresh()
   }
 
   function handleEditMsg(id: string, content: string) {
@@ -242,6 +301,7 @@ export default function App() {
       msg.id === id ? { ...msg, content, tokens: Fact.estimateTokens(content) } : msg
     ))
     cache.update(id, content)
+    refresh()
   }
 
   function handleClearMessages() {
@@ -280,6 +340,9 @@ export default function App() {
         color: CATEGORY_COLORS['Tool Definitions'],
       }))
     }
+    // Re-sync memory after clearing
+    syncMemoryToCache()
+    refresh()
   }
 
   function handleSystemChange(content: string) {
@@ -298,6 +361,7 @@ export default function App() {
         color: CATEGORY_COLORS['System Prompt'],
       }))
     }
+    refresh()
   }
 
   function handleInject(label: string, content: string) {
@@ -311,14 +375,46 @@ export default function App() {
       pinned: false,
       color: CATEGORY_COLORS['Injected Context'],
     }))
+    refresh()
   }
 
   function handleBlockUpdate(id: string, content: string) {
     cache.update(id, content)
+    refresh()
+    // If this is a memory entry, update in memory bank too
+    const entry = memoryBank.getEntry(id)
+    if (entry) {
+      const fact = cache.get(id)
+      if (fact) {
+        memoryBank.updateEntry(id, fact.label, content)
+      }
+    }
   }
 
   function handleBlockDelete(id: string) {
     cache.delete(id)
+    refresh()
+    // If this is a memory entry, delete from memory bank too
+    const entry = memoryBank.getEntry(id)
+    if (entry) {
+      memoryBank.removeEntry(id)
+    }
+  }
+
+  // Memory Bank functions
+  async function handleAddMemory(label: string, content: string, category: 'conversation' | 'insight' | 'code' | 'reference' | 'other' = 'other') {
+    const id = await memoryBank.addEntry(label, content, category)
+    syncMemoryToCache()
+    refresh()
+    return id
+  }
+
+  function handleSearchMemory(query: string) {
+    return memoryBank.search(query)
+  }
+
+  function getMemoryStats() {
+    return memoryBank.getStats()
   }
 
   return (
@@ -352,6 +448,9 @@ export default function App() {
           model={MODEL}
           theme={theme}
           onToggleTheme={toggleTheme}
+          memoryBank={memoryBank}
+          onAddMemory={handleAddMemory}
+          onSearchMemory={handleSearchMemory}
         />
         <ContextPane
           cache={cache}
@@ -360,6 +459,9 @@ export default function App() {
           onDelete={handleBlockDelete}
           onInject={handleInject}
           onSystemChange={handleSystemChange}
+          memoryBank={memoryBank}
+          memoryStats={getMemoryStats()}
+          onAddMemory={handleAddMemory}
         />
       </div>
       <ToolPane

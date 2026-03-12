@@ -2,7 +2,7 @@
 // FactCache — context window data model
 // ============================================================
 
-export type BlockType = 'system' | 'user' | 'assistant' | 'injected' | 'tool-defs' | 'tool-turn' | 'thinking' | 'file-summary'
+export type BlockType = 'system' | 'user' | 'assistant' | 'injected' | 'tool-defs' | 'tool-turn' | 'thinking' | 'file-summary' | 'memory'
 
 export type BlockCategory =
   | 'System Prompt'
@@ -14,6 +14,7 @@ export type BlockCategory =
   | 'Tool Activity'
   | 'Extended Reasoning'
   | 'File Summary'
+  | 'Memory Bank'
 
 export interface FactMeta {
   id: string
@@ -62,7 +63,7 @@ export class Fact {
   }
 
   toMessage(): { role: 'user' | 'assistant' | 'system'; content: string } | null {
-    if (this.type === 'system' || this.type === 'injected' || this.type === 'thinking' || this.type === 'file-summary') return null
+    if (this.type === 'system' || this.type === 'injected' || this.type === 'thinking' || this.type === 'file-summary' || this.type === 'memory') return null
     return { role: this.type as 'user' | 'assistant', content: this.content }
   }
 
@@ -150,12 +151,14 @@ export class FactCache {
 
     // Injected context blocks get prepended to the first user message
     const injected = this.all().filter(f => f.type === 'injected')
+    const memory = this.all().filter(f => f.type === 'memory')
     const conversation = this.all().filter(f => f.type === 'user' || f.type === 'assistant')
 
-    if (injected.length > 0 && conversation.length > 0) {
-      const injectedText = injected.map(f => `<context label="${f.label}">\\n${f.content}\\n</context>`).join('\\n\\n')
+    if ((injected.length > 0 || memory.length > 0) && conversation.length > 0) {
+      const contextBlocks = [...injected, ...memory]
+      const contextText = contextBlocks.map(f => `<context label="${f.label}">\n${f.content}\n</context>`).join('\n\n')
       const [first, ...rest] = conversation
-      msgs.push({ role: 'user', content: injectedText + '\\n\\n' + first.content })
+      msgs.push({ role: 'user', content: contextText + '\n\n' + first.content })
       for (const m of rest) msgs.push({ role: m.type as 'user' | 'assistant', content: m.content })
     } else {
       for (const m of conversation) {
@@ -170,7 +173,7 @@ export class FactCache {
     return this.all()
       .filter(f => f.type === 'system')
       .map(f => f.content)
-      .join('\\n\\n')
+      .join('\n\n')
   }
 
   clearByType(type: BlockType) {
@@ -203,6 +206,7 @@ export const CATEGORY_COLORS: Record<string, string> = {
   'Tool Activity':      '#ffcc00',
   'Extended Reasoning': '#9333ea',
   'File Summary':       '#10b981',  // emerald color for file summaries
+  'Memory Bank':        '#8b5cf6',  // violet color for persistent memory
 }
 
 let _idCounter = 0
