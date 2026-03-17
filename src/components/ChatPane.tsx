@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { Fact } from '../factcache'
 import { MemoryBank, MemoryEntry } from '../memorybank'
 import { ConceptDisplay } from './ConceptDisplay'
+import { AutopilotDemo } from './AutopilotDemo'
 import type { Theme } from '../theme'
 
 interface Message {
@@ -129,6 +130,24 @@ export function ChatPane({
       minWidth: 0,
     }}>
       {recentConcepts.length > 0 && <ConceptDisplay concepts={recentConcepts} />}
+      
+      {/* Autopilot Concept Evolution Demo */}
+      {(autopilot?.active || recentConcepts.length > 0) && (
+        <div style={{ 
+          position: 'absolute', 
+          top: recentConcepts.length > 0 ? 130 : 60, 
+          left: 20, 
+          right: 20,
+          zIndex: 100 
+        }}>
+          <AutopilotDemo 
+            isActive={autopilot?.active || false}
+            currentStep={autopilot?.stepsRemaining || 0}
+            totalSteps={autopilot?.totalSteps || 5}
+            concepts={recentConcepts}
+          />
+        </div>
+      )}
 
       {/* Header — WebkitAppRegion makes the whole bar draggable in Electron */}
       <div style={{

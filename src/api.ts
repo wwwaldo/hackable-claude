@@ -535,5 +535,5 @@ async function runTurn(
     return
   }
 
-  callbacks.onDone(turnText, inputTokens, totalOutputTok, turnThinking || undefined)
+  callbacks.onDone(totalText, totalInputTok, totalOutputTok, totalThinking || undefined)
 }

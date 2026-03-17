@@ -31,7 +31,7 @@ export function ContextPane({
   const [showInject,  setShowInject]  = useState(false)
   const [showSystem,  setShowSystem]  = useState(false)
   const [showMemory,  setShowMemory]  = useState(false)
-  const [sysContent,  setSysContent]  = useState(cache.getSystemPrompt())
+  const [sysContent,  setSysContent]  = useState(cache.get('system_prompt')?.content ?? '')
   const [memoryLabel, setMemoryLabel] = useState('')
   const [memoryContent, setMemoryContent] = useState('')
   const [memoryCategory, setMemoryCategory] = useState<'conversation' | 'insight' | 'code' | 'reference' | 'other'>('conversation')
@@ -50,6 +50,10 @@ export function ContextPane({
     'Tool Activity'
   ]
   const orderedCats = categoryOrder.filter(c => byCategory[c]?.length)
+
+  useEffect(() => {
+    if (showSystem) setSysContent(cache.get('system_prompt')?.content ?? '')
+  }, [showSystem])
 
   // Generate conversation summary when memory modal opens
   useEffect(() => {

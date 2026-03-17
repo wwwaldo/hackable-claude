@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { FactCache, Fact, makeId, CATEGORY_COLORS } from './factcache'
 import { MemoryBank } from './memorybank'
 import { ConceptTracker } from './conceptTracker'
+import { autopilotConceptTracker } from './autopilotConceptTracker'
 import { ChatPane } from './components/ChatPane'
 import { ContextPane } from './components/ContextPane'
 import { ToolPane, ToolEvent } from './components/ToolPane'
@@ -111,16 +112,14 @@ export default function App() {
   useEffect(() => {
     if (autopilot.active && autopilot.queue.length > 0 && !streaming && apiKey) {
       const nextItem = autopilot.queue[0]
-      
-      // Remove the item from the queue
-      setAutopilot(prev => ({
-        ...prev,
-        queue: prev.queue.slice(1)
-      }))
+      const stepsLeft = autopilot.stepsRemaining
 
-      // Send the autopilot message after a brief delay for visibility
       const timer = setTimeout(() => {
-        handleSend(`[AUTOPILOT] ${nextItem.prompt}`)
+        setAutopilot(prev => ({
+          ...prev,
+          queue: prev.queue.slice(1)
+        }))
+        handleSend(`[AUTOPILOT — ${stepsLeft} steps remaining] ${nextItem.prompt}\n\nContinue working. Call autopilot_next when this step is done.`)
       }, 1500)
 
       return () => clearTimeout(timer)
@@ -227,17 +226,39 @@ export default function App() {
       totalSteps: steps,
       objective
     })
-    
-    // Send the initial autopilot message
-    handleSend(`[AUTOPILOT START] ${objective} (${steps} steps available)`)
+
+    // Initialize concept tracking for this autopilot session
+    autopilotConceptTracker.initializeSession(steps, objective)
+
+    const autopilotPrompt = [
+      `[AUTOPILOT MODE ACTIVE — ${steps} steps remaining]`,
+      `Objective: ${objective}`,
+      '',
+      'You MUST call the autopilot_next tool after completing each step.',
+      'Set status to "continue" to keep going, "complete" when the objective is fully done, or "error" if stuck.',
+      'Decrement steps_remaining by 1 each time. Begin now — analyze the objective and take your first action.',
+    ].join('\n')
+
+    handleSend(autopilotPrompt)
   }
 
   function handleStopAutopilot() {
+    // Export concept analysis before stopping
+    if (autopilot.active) {
+      const analysis = autopilotConceptTracker.exportAnalysis()
+      if (analysis && analysis.length > 50) { // Only inject if there's meaningful data
+        handleInject('Autopilot Concept Evolution (Stopped)', analysis)
+      }
+    }
+
     setAutopilot(prev => ({
       ...prev,
       active: false,
       queue: []
     }))
+    
+    // Clear concept tracking
+    autopilotConceptTracker.clear()
   }
 
   async function handleSend(text: string) {
@@ -394,6 +415,21 @@ export default function App() {
         ? { ...assistantMsg, thinking: finalThinking }
         : assistantMsg
       setMessages(prev => [...prev, msgWithThinking as PersistedMessage])
+
+      // Update concept tracking if in autopilot mode
+      if (autopilot.active) {
+        autopilotConceptTracker.updateFromAutopilotStep(
+          finalText, 
+          autopilot.stepsRemaining,
+          'Processing autopilot step'
+        )
+        
+        // Inject concept evolution analysis into context when autopilot completes
+        if (autopilot.stepsRemaining <= 1) {
+          const analysis = autopilotConceptTracker.exportAnalysis()
+          handleInject('Autopilot Concept Evolution', analysis)
+        }
+      }
     }
 
     setStreaming(false)
