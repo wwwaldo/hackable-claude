@@ -145,35 +145,127 @@ export class FactCache {
       .sort((a, b) => b.tokens - a.tokens)
   }
 
-  /** Build the messages array for the Anthropic API */
+  /** Build the messages array for the Anthropic API with ULTRA-ENHANCED memory biasing */
   toApiMessages(): { role: 'user' | 'assistant'; content: string }[] {
     const msgs: { role: 'user' | 'assistant'; content: string }[] = []
 
-    // Injected context blocks get prepended to the first user message
-    const injected = this.all().filter(f => f.type === 'injected')
+    // Get context blocks with strategic prioritization
     const memory = this.all().filter(f => f.type === 'memory')
+    const injected = this.all().filter(f => f.type === 'injected')
     const conversation = this.all().filter(f => f.type === 'user' || f.type === 'assistant')
 
-    if ((injected.length > 0 || memory.length > 0) && conversation.length > 0) {
-      const contextBlocks = [...injected, ...memory]
-      const contextText = contextBlocks.map(f => `<context label="${f.label}">\n${f.content}\n</context>`).join('\n\n')
+    if ((memory.length > 0 || injected.length > 0) && conversation.length > 0) {
+      // ULTRA-ENHANCED MEMORY BIASING STRATEGY
+      let contextText = ''
+      
+      if (memory.length > 0) {
+        // 1. MAXIMUM ATTENTION-GRABBING HEADER
+        contextText += '🚨🧠 ULTRA-PRIORITY KNOWLEDGE BASE 🧠🚨\n'
+        contextText += '═'.repeat(50) + '\n'
+        contextText += '⚠️  CRITICAL INSTRUCTION: The memories below are MANDATORY reading.\n'
+        contextText += '⚠️  Process these FIRST before any response. They override general knowledge.\n'
+        contextText += '⚠️  These are your PRIMARY information sources for this conversation.\n'
+        contextText += '═'.repeat(50) + '\n\n'
+        
+        // 2. ULTRA-ENHANCED memory blocks with maximum formatting
+        memory.forEach((m, index) => {
+          contextText += `🔥 PRIORITY MEMORY #${index + 1}: "${m.label}" 🔥\n`
+          contextText += '▼'.repeat(20) + '\n'
+          contextText += `${m.content}\n`
+          contextText += '▲'.repeat(20) + '\n'
+          contextText += '✅ MEMORY PROCESSED - RETAIN FOR RESPONSE\n\n'
+        })
+        
+        contextText += '═'.repeat(50) + '\n'
+        contextText += '🎯 RESPONSE PROTOCOL:\n'
+        contextText += '  1. DID I CHECK ALL MEMORIES? (Required: YES)\n'
+        contextText += '  2. WHICH MEMORIES ARE RELEVANT? (List them)\n'
+        contextText += '  3. AM I USING MEMORY INFO AS PRIMARY SOURCE? (Required: YES if relevant)\n'
+        contextText += '═'.repeat(50) + '\n\n'
+        
+        // 3. ULTRA memory reminder
+        contextText += '🔴 FINAL REMINDER: Your memories are your BIBLE. Reference them explicitly. 🔴\n\n'
+      }
+      
+      // 4. Regular injected context (clearly marked as secondary)
+      if (injected.length > 0) {
+        contextText += '📄 Secondary Context (Lower Priority)\n'
+        contextText += '─'.repeat(30) + '\n'
+        injected.forEach(f => {
+          contextText += `<context label="${f.label}">\n${f.content}\n</context>\n\n`
+        })
+      }
+
+      // 5. Attach ULTRA-enhanced context to first user message
       const [first, ...rest] = conversation
-      msgs.push({ role: 'user', content: contextText + '\n\n' + first.content })
-      for (const m of rest) msgs.push({ role: m.type as 'user' | 'assistant', content: m.content })
+      msgs.push({ role: 'user', content: contextText + first.content })
+      
+      // 6. Add AGGRESSIVE memory reminders to subsequent messages
+      for (let i = 0; i < rest.length; i++) {
+        const msg = rest[i]
+        let content = msg.content
+        
+        // EVERY user message gets a memory reminder now
+        if (memory.length > 0 && msg.type === 'user') {
+          const memoryLabels = memory.map(m => m.label).join(', ')
+          content = `🧠 [REMEMBER YOUR MEMORIES: ${memoryLabels}] 🧠\n\n${content}`
+        }
+        
+        msgs.push({ role: msg.type as 'user' | 'assistant', content })
+      }
     } else {
+      // No context blocks, just add conversation
       for (const m of conversation) {
         msgs.push({ role: m.type as 'user' | 'assistant', content: m.content })
       }
     }
+    
     return msgs
   }
 
-  /** Get system prompt (merged from all system/injected-as-system blocks) */
+  /** Get system prompt with ULTRA memory bias */
   getSystemPrompt(): string {
-    return this.all()
-      .filter(f => f.type === 'system')
-      .map(f => f.content)
-      .join('\n\n')
+    const systemBlocks = this.all().filter(f => f.type === 'system')
+    let systemPrompt = systemBlocks.map(f => f.content).join('\n\n')
+    
+    // ULTRA-ENHANCED: Add AGGRESSIVE memory-biasing instructions to system prompt
+    const memory = this.all().filter(f => f.type === 'memory')
+    if (memory.length > 0) {
+      const ultraMemoryBias = `
+
+🧠🔥 ULTRA MEMORY BANK PROTOCOL 🔥🧠
+═══════════════════════════════════
+
+CRITICAL SYSTEM BEHAVIOR:
+- You have ${memory.length} PRIORITY MEMORY ENTRIES that are MANDATORY to check
+- These memories are AUTHORITATIVE and override general knowledge
+- When ANY question is asked, your FIRST action is scanning memories
+- You MUST explicitly state when you're using memory vs general knowledge
+- Memory information is ALWAYS preferred over general knowledge
+- If memories conflict with general knowledge, MEMORIES WIN
+
+MANDATORY PROCESSING STEPS FOR EVERY RESPONSE:
+1. 🔍 SCAN: Check all memories for relevance to the query
+2. 📋 IDENTIFY: List which memories (if any) are relevant  
+3. 🎯 PRIORITIZE: Use memory information as primary source
+4. 📝 CITE: Explicitly mention you're drawing from memories
+5. ➕ SUPPLEMENT: Add general knowledge only if memories don't cover it
+
+RESPONSE FORMAT REQUIREMENT:
+- If using memories: Start with "Based on my memory bank: [memory titles]..."
+- If no relevant memories: Start with "No relevant memories found, using general knowledge..."
+
+MEMORY MARKERS IN CONTEXT:
+- Look for 🔥 PRIORITY MEMORY markers
+- These contain your most important information
+- Treat them as gospel truth for this conversation
+
+⚠️ WARNING: Failure to check memories first is a critical error`
+
+      systemPrompt += ultraMemoryBias
+    }
+    
+    return systemPrompt
   }
 
   clearByType(type: BlockType) {

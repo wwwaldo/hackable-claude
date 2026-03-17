@@ -1,0 +1,8 @@
+{
+  "id": "previous-conversations",
+  "label": "Key Conversations & Insights",
+  "content": "**Recent Important Conversations**:\n\n**Memory Bank Bug Fix**:\n- Fixed critical duplication bug where entries multiplied every 5 seconds\n- Root cause: `memoryBank.initialize()` called repeatedly without clearing\n- Solution: Added `memoryInitialized` state and `this.entries = []` clearing\n- Also fixed memory modal to properly sync new entries to context\n\n**Fish Memory Tests**:\n- User added fish-related test memories (Magikarp, carp)\n- Tested memory persistence and context sync functionality\n- Confirmed violet block display for memory entries\n\n**Context System Understanding**:\n- Memory has both persistence (file storage) and display (FactCache sync)\n- Context window shows different colored blocks by category\n- System supports injected context, tool activity, file summaries\n- Token counting and context window management\n\n**Development Patterns**:\n- Always backup files before modification\n- Use Vite HMR for instant updates\n- Separate concerns between storage and display layers\n- Test both persistence and UI integration",
+  "tokens": 238,
+  "timestamp": 1710271380000,
+  "category": "conversation"
+}

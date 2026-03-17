@@ -13,6 +13,7 @@ const PORT         = 3001
 const SESSION_DIR  = path.join(os.homedir(), '.hackable-claude')
 const SESSION_FILE = path.join(SESSION_DIR, 'session.json')
 const MEMORY_DIR   = path.join(SESSION_DIR, 'memorybank')
+const LOCAL_MEMORY_DIR = path.join(__dirname, 'memorybank')
 
 const ALLOWED_EXTENSIONS = ['.ts', '.tsx', '.css', '.json', '.html', '.md']
 const BLOCKED_PATHS      = ['node_modules', 'dist', '.git', '.backups']
@@ -215,30 +216,55 @@ app.post('/api/messages', (req, res) => {
 
 // ── Routes: MemoryBank ──────────────────────────────────────
 
-// List all memory files
+// List all memory files (both local and user directories)
 app.get('/memorybank/list', (_req, res) => {
   try {
-    if (!fs.existsSync(MEMORY_DIR)) {
-      fs.mkdirSync(MEMORY_DIR, { recursive: true })
-      return res.json([])
+    const allFiles: string[] = []
+    
+    // Get local memory files from app/memorybank/ directory
+    if (fs.existsSync(LOCAL_MEMORY_DIR)) {
+      const localFiles = fs.readdirSync(LOCAL_MEMORY_DIR)
+        .filter(name => name.endsWith('.json'))
+        .map(name => `local:${name.replace('.json', '')}`)
+      allFiles.push(...localFiles)
     }
     
-    const files = fs.readdirSync(MEMORY_DIR)
-      .filter(name => name.endsWith('.json'))
-      .map(name => name.replace('.json', ''))
+    // Get user memory files from ~/.hackable-claude/memorybank/
+    if (fs.existsSync(MEMORY_DIR)) {
+      const userFiles = fs.readdirSync(MEMORY_DIR)
+        .filter(name => name.endsWith('.json'))
+        .map(name => `user:${name.replace('.json', '')}`)
+      allFiles.push(...userFiles)
+    }
     
-    res.json(files)
+    res.json(allFiles)
   } catch (e) {
     console.error('[memorybank] list error:', e)
     res.status(500).json({ error: String(e) })
   }
 })
 
-// Read a memory entry
+// Read a memory entry (supports both local: and user: prefixes)
 app.get('/memorybank/read/:id', (req, res) => {
   try {
     const { id } = req.params
-    const filePath = path.join(MEMORY_DIR, `${id}.json`)
+    let filePath: string
+    let actualId: string
+    
+    if (id.startsWith('local:')) {
+      actualId = id.replace('local:', '')
+      filePath = path.join(LOCAL_MEMORY_DIR, `${actualId}.json`)
+    } else if (id.startsWith('user:')) {
+      actualId = id.replace('user:', '')
+      filePath = path.join(MEMORY_DIR, `${actualId}.json`)
+    } else {
+      // Legacy support - try user directory first, then local
+      actualId = id
+      filePath = path.join(MEMORY_DIR, `${id}.json`)
+      if (!fs.existsSync(filePath)) {
+        filePath = path.join(LOCAL_MEMORY_DIR, `${id}.json`)
+      }
+    }
     
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ error: `Memory entry ${id} not found` })
@@ -247,6 +273,12 @@ app.get('/memorybank/read/:id', (req, res) => {
     const content = fs.readFileSync(filePath, 'utf-8')
     const entry = JSON.parse(content)
     
+    // Ensure the entry has the prefixed id for tracking
+    if (id.startsWith('local:') || id.startsWith('user:')) {
+      entry.id = id
+      entry.isReadonly = id.startsWith('local:')
+    }
+    
     res.json(entry)
   } catch (e) {
     console.error(`[memorybank] read error for ${req.params.id}:`, e)
@@ -254,21 +286,35 @@ app.get('/memorybank/read/:id', (req, res) => {
   }
 })
 
-// Save a memory entry
+// Save a memory entry (only allows user: entries or creates new user entries)
 app.post('/memorybank/save/:id', (req, res) => {
   try {
     const { id } = req.params
     const entry = req.body
+    
+    // Don't allow saving to local: entries
+    if (id.startsWith('local:')) {
+      return res.status(403).json({ error: 'Cannot modify local memory entries' })
+    }
     
     // Ensure directory exists
     if (!fs.existsSync(MEMORY_DIR)) {
       fs.mkdirSync(MEMORY_DIR, { recursive: true })
     }
     
-    const filePath = path.join(MEMORY_DIR, `${id}.json`)
-    fs.writeFileSync(filePath, JSON.stringify(entry, null, 2), 'utf-8')
+    const actualId = id.startsWith('user:') ? id.replace('user:', '') : id
+    const filePath = path.join(MEMORY_DIR, `${actualId}.json`)
     
-    console.log(`[memorybank] saved ${id} (${entry.tokens || 0} tokens)`)
+    // Remove prefixes from the saved entry
+    const cleanEntry = { ...entry }
+    if (cleanEntry.id.startsWith('user:')) {
+      cleanEntry.id = cleanEntry.id.replace('user:', '')
+    }
+    delete cleanEntry.isReadonly
+    
+    fs.writeFileSync(filePath, JSON.stringify(cleanEntry, null, 2), 'utf-8')
+    
+    console.log(`[memorybank] saved ${actualId} (${entry.tokens || 0} tokens)`)
     res.json({ ok: true })
   } catch (e) {
     console.error(`[memorybank] save error for ${req.params.id}:`, e)
@@ -276,15 +322,22 @@ app.post('/memorybank/save/:id', (req, res) => {
   }
 })
 
-// Delete a memory entry
+// Delete a memory entry (only allows user: entries)
 app.delete('/memorybank/delete/:id', (req, res) => {
   try {
     const { id } = req.params
-    const filePath = path.join(MEMORY_DIR, `${id}.json`)
+    
+    // Don't allow deleting local: entries
+    if (id.startsWith('local:')) {
+      return res.status(403).json({ error: 'Cannot delete local memory entries' })
+    }
+    
+    const actualId = id.startsWith('user:') ? id.replace('user:', '') : id
+    const filePath = path.join(MEMORY_DIR, `${actualId}.json`)
     
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath)
-      console.log(`[memorybank] deleted ${id}`)
+      console.log(`[memorybank] deleted ${actualId}`)
     }
     
     res.json({ ok: true })
@@ -294,40 +347,65 @@ app.delete('/memorybank/delete/:id', (req, res) => {
   }
 })
 
-// Get memory stats
+// Get memory stats (combines local and user entries)
 app.get('/memorybank/stats', (_req, res) => {
   try {
-    if (!fs.existsSync(MEMORY_DIR)) {
-      return res.json({
-        totalEntries: 0,
-        totalTokens: 0,
-        totalSize: 0
-      })
-    }
-    
-    const files = fs.readdirSync(MEMORY_DIR).filter(name => name.endsWith('.json'))
+    let totalEntries = 0
     let totalTokens = 0
     let totalSize = 0
+    let localEntries = 0
+    let userEntries = 0
     
-    for (const file of files) {
-      const filePath = path.join(MEMORY_DIR, file)
-      const stat = fs.statSync(filePath)
-      totalSize += stat.size
+    // Count local entries
+    if (fs.existsSync(LOCAL_MEMORY_DIR)) {
+      const localFiles = fs.readdirSync(LOCAL_MEMORY_DIR).filter(name => name.endsWith('.json'))
+      localEntries = localFiles.length
       
-      try {
-        const content = fs.readFileSync(filePath, 'utf-8')
-        const entry = JSON.parse(content)
-        totalTokens += entry.tokens || 0
-      } catch (e) {
-        console.error(`Error reading memory file ${file}:`, e)
+      for (const file of localFiles) {
+        const filePath = path.join(LOCAL_MEMORY_DIR, file)
+        const stat = fs.statSync(filePath)
+        totalSize += stat.size
+        
+        try {
+          const content = fs.readFileSync(filePath, 'utf-8')
+          const entry = JSON.parse(content)
+          totalTokens += entry.tokens || 0
+        } catch (e) {
+          console.error(`Error reading local memory file ${file}:`, e)
+        }
       }
     }
     
+    // Count user entries
+    if (fs.existsSync(MEMORY_DIR)) {
+      const userFiles = fs.readdirSync(MEMORY_DIR).filter(name => name.endsWith('.json'))
+      userEntries = userFiles.length
+      
+      for (const file of userFiles) {
+        const filePath = path.join(MEMORY_DIR, file)
+        const stat = fs.statSync(filePath)
+        totalSize += stat.size
+        
+        try {
+          const content = fs.readFileSync(filePath, 'utf-8')
+          const entry = JSON.parse(content)
+          totalTokens += entry.tokens || 0
+        } catch (e) {
+          console.error(`Error reading user memory file ${file}:`, e)
+        }
+      }
+    }
+    
+    totalEntries = localEntries + userEntries
+    
     res.json({
-      totalEntries: files.length,
+      totalEntries,
       totalTokens,
       totalSize,
-      memoryDir: MEMORY_DIR
+      localEntries,
+      userEntries,
+      localMemoryDir: LOCAL_MEMORY_DIR,
+      userMemoryDir: MEMORY_DIR
     })
   } catch (e) {
     console.error('[memorybank] stats error:', e)
@@ -338,5 +416,6 @@ app.get('/memorybank/stats', (_req, res) => {
 app.listen(PORT, () => {
   console.log(`[file-api] http://localhost:${PORT}`)
   console.log(`[session]  ${SESSION_FILE}`)
-  console.log(`[memorybank] ${MEMORY_DIR}`)
+  console.log(`[memorybank-user] ${MEMORY_DIR}`)
+  console.log(`[memorybank-local] ${LOCAL_MEMORY_DIR}`)
 })

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Fact, FactCache } from '../factcache'
 import { MemoryBank } from '../memorybank'
 import { BlockCard } from './BlockCard'
@@ -34,7 +34,7 @@ export function ContextPane({
   const [sysContent,  setSysContent]  = useState(cache.getSystemPrompt())
   const [memoryLabel, setMemoryLabel] = useState('')
   const [memoryContent, setMemoryContent] = useState('')
-  const [memoryCategory, setMemoryCategory] = useState<'conversation' | 'insight' | 'code' | 'reference' | 'other'>('other')
+  const [memoryCategory, setMemoryCategory] = useState<'conversation' | 'insight' | 'code' | 'reference' | 'other'>('conversation')
 
   const facts = cache.all()
   const byCategory = cache.byCategory()
@@ -50,6 +50,15 @@ export function ContextPane({
     'Tool Activity'
   ]
   const orderedCats = categoryOrder.filter(c => byCategory[c]?.length)
+
+  // Generate conversation summary when memory modal opens
+  useEffect(() => {
+    if (showMemory && !memoryLabel && !memoryContent) {
+      const summary = generateConversationSummary(cache)
+      setMemoryLabel(summary.label)
+      setMemoryContent(summary.content)
+    }
+  }, [showMemory, cache, memoryLabel, memoryContent])
 
   function saveSystem() {
     onSystemChange(sysContent)
@@ -67,6 +76,25 @@ export function ContextPane({
     } catch (error) {
       console.error('Failed to save memory entry:', error)
     }
+  }
+
+  // Custom update/delete handlers for memory entries
+  function handleMemoryUpdate(id: string, content: string) {
+    const entry = memoryBank?.getEntry(id)
+    if (entry?.isReadonly) {
+      alert('This memory entry is read-only and cannot be edited.')
+      return
+    }
+    onUpdate(id, content)
+  }
+
+  function handleMemoryDelete(id: string) {
+    const entry = memoryBank?.getEntry(id)
+    if (entry?.isReadonly) {
+      alert('This memory entry is read-only and cannot be deleted.')
+      return
+    }
+    onDelete(id)
   }
 
   return (
@@ -164,14 +192,18 @@ export function ContextPane({
                 </span>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                {(byCategory[cat] ?? []).map(fact => (
-                  <BlockCard
-                    key={fact.id}
-                    fact={fact}
-                    onUpdate={onUpdate}
-                    onDelete={onDelete}
-                  />
-                ))}
+                {(byCategory[cat] ?? []).map(fact => {
+                  // Use special handlers for memory entries
+                  const isMemoryEntry = cat === 'Memory Bank'
+                  return (
+                    <BlockCard
+                      key={fact.id}
+                      fact={fact}
+                      onUpdate={isMemoryEntry ? handleMemoryUpdate : onUpdate}
+                      onDelete={isMemoryEntry ? handleMemoryDelete : onDelete}
+                    />
+                  )
+                })}
               </div>
             </div>
           ))}
@@ -198,7 +230,7 @@ export function ContextPane({
             </div>
           )}
 
-          {/* Memory Bank stats */}
+          {/* Enhanced Memory Bank stats */}
           {memoryBank && memoryStats && (
             <div style={{
               marginTop: 8,
@@ -212,9 +244,20 @@ export function ContextPane({
               <div style={{ fontFamily: 'var(--font-display)', fontWeight: 600, color: '#8b5cf6', marginBottom: 4, fontSize: 11 }}>
                 🧠 Memory Bank
               </div>
-              <div>Entries: <span style={{ color: '#8b5cf6' }}>{memoryStats.totalEntries}</span></div>
+              <div>Total: <span style={{ color: '#8b5cf6' }}>{memoryStats.totalEntries}</span> entries</div>
+              <div style={{ paddingLeft: 8, fontSize: 9, color: 'var(--text3)' }}>
+                Local: {memoryStats.localEntries} • User: {memoryStats.userEntries}
+              </div>
               <div>Tokens: <span style={{ color: '#8b5cf6' }}>{memoryStats.totalTokens.toLocaleString()}</span> / 50k</div>
+              <div style={{ paddingLeft: 8, fontSize: 9, color: 'var(--text3)' }}>
+                Local: {memoryStats.localTokens.toLocaleString()} • User: {memoryStats.userTokens.toLocaleString()}
+              </div>
               <div>Usage: <span style={{ color: memoryStats.utilizationPercent > 80 ? 'var(--danger)' : '#8b5cf6' }}>{memoryStats.utilizationPercent}%</span></div>
+              {memoryStats.userUtilizationPercent !== memoryStats.utilizationPercent && (
+                <div style={{ paddingLeft: 8, fontSize: 9, color: 'var(--text3)' }}>
+                  User only: {memoryStats.userUtilizationPercent}%
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -320,7 +363,7 @@ export function ContextPane({
               🧠 Add to Memory Bank
             </div>
             <div style={{ fontSize: 10, color: 'var(--text2)', marginBottom: 16 }}>
-              Persistent context that survives across conversations · 50k token limit
+              Persistent context that survives across conversations · 50k token limit · Auto-generated summary below
             </div>
             
             <div style={{ marginBottom: 12 }}>
@@ -356,11 +399,11 @@ export function ContextPane({
                   borderRadius: 4,
                 }}
               >
-                <option value="other">Other</option>
                 <option value="conversation">Conversation</option>
                 <option value="insight">Insight</option>
                 <option value="code">Code</option>
                 <option value="reference">Reference</option>
+                <option value="other">Other</option>
               </select>
             </div>
 
@@ -412,4 +455,59 @@ export function ContextPane({
       )}
     </>
   )
+}
+
+// Generate a conversation summary for auto-filling the memory modal
+function generateConversationSummary(cache: FactCache): { label: string; content: string } {
+  const userMessages = cache.all().filter(f => f.type === 'user')
+  const assistantMessages = cache.all().filter(f => f.type === 'assistant')
+  
+  if (userMessages.length === 0 && assistantMessages.length === 0) {
+    return {
+      label: 'Empty Conversation',
+      content: 'No conversation to summarize yet.'
+    }
+  }
+
+  // Build conversation context for Claude to summarize
+  const conversationText = [
+    '# Conversation to Summarize',
+    '',
+    ...userMessages.flatMap((userMsg, i) => {
+      const assistantMsg = assistantMessages[i]
+      const parts = [`**User**: ${userMsg.content}`]
+      if (assistantMsg) {
+        parts.push(`**Assistant**: ${assistantMsg.content}`)
+      }
+      return parts
+    })
+  ].join('\n')
+
+  // Create a summarization prompt
+  const summaryPrompt = `Please summarize the conversation above into 500 tokens or less. If the conversation doesn't seem important, use 50 tokens or less. Important topics do not include coding and do include personal life and career advice.
+
+Focus on:
+- Key insights or decisions
+- Personal context or preferences shared
+- Important questions or problems discussed
+- Actionable outcomes or next steps
+
+Format the summary as clear, concise bullet points or paragraphs.`
+
+  // Generate a descriptive label based on conversation content
+  const firstUserMessage = userMessages[0]?.content || 'conversation'
+  const topicWords = firstUserMessage
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(w => w.length > 3 && !['this', 'that', 'with', 'from', 'they', 'have', 'will', 'been', 'were', 'said', 'what', 'when', 'where', 'would', 'could', 'should'].includes(w))
+    .slice(0, 3)
+  
+  const label = topicWords.length > 0 
+    ? `Conversation: ${topicWords.join(' ')}`
+    : `Conversation ${new Date().toLocaleDateString()}`
+
+  return {
+    label,
+    content: `${conversationText}\n\n---\n\n${summaryPrompt}`
+  }
 }

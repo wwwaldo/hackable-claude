@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { FactCache, Fact, makeId, CATEGORY_COLORS } from './factcache'
 import { MemoryBank } from './memorybank'
+import { ConceptTracker } from './conceptTracker'
 import { ChatPane } from './components/ChatPane'
 import { ContextPane } from './components/ContextPane'
 import { ToolPane, ToolEvent } from './components/ToolPane'
@@ -26,6 +27,7 @@ export default function App() {
 
   const cache      = useRef(new FactCache()).current
   const memoryBank = useRef(new MemoryBank()).current
+  const conceptTracker = useRef(new ConceptTracker()).current
   const abortRef   = useRef<AbortController | null>(null)
   const { theme, toggleTheme } = useTheme()
 
@@ -73,6 +75,14 @@ export default function App() {
       initMemory()
     }
   }, [serverOnline, memoryInitialized])
+
+  // Update concept tracker when messages change
+  useEffect(() => {
+    // Process all assistant messages for concepts
+    messages
+      .filter(msg => msg.role === 'assistant')
+      .forEach(msg => conceptTracker.updateFromMessage(msg.content))
+  }, [messages, conceptTracker])
 
   // Sync memory entries to cache for context display
   const syncMemoryToCache = useCallback(() => {
@@ -238,7 +248,7 @@ export default function App() {
               cache.set(new Fact({
                 id: makeId('file-summary'),
                 label: `File: ${path}`,
-                content: `**Path:** ${path}\\n\\n**Summary:** ${summary}`,
+                content: `**Path:** ${path}\\\\n\\\\n**Summary:** ${summary}`,
                 type: 'file-summary',
                 category: 'File Summary',
                 tokens: tokens,
@@ -311,6 +321,7 @@ export default function App() {
     cache.clearByType('tool-turn')
     setToolEvents([])
     setApiTokens(undefined)
+    conceptTracker.clear()
   }
 
   function handleClearSession() {
@@ -342,6 +353,7 @@ export default function App() {
     }
     // Re-sync memory after clearing
     syncMemoryToCache()
+    conceptTracker.clear()
     refresh()
   }
 
@@ -451,6 +463,7 @@ export default function App() {
           memoryBank={memoryBank}
           onAddMemory={handleAddMemory}
           onSearchMemory={handleSearchMemory}
+          recentConcepts={conceptTracker.getRecentConcepts()}
         />
         <ContextPane
           cache={cache}

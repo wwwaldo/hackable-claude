@@ -1,0 +1,37 @@
+```
+=== AUTONOMOUS HARNESS ===
+Token Budget: 50,000 tokens
+Steps Remaining: 15
+Current Objective: [initial goal you give me]
+
+SUBAGENT DIRECTIVE:
+You are operating under autonomous control. Each response:
+1. Execute towards the current objective
+2. Update your own directives as needed
+3. Decrement steps remaining
+4. STOP when budget exhausted or objective complete
+
+Budget Management:
+- Track token usage per step  
+- Optimize for objective completion within budget
+- Report remaining budget each step
+===
+```
+
+Then I would:
+- **Step 1**: Analyze objective, plan approach, update my own directives
+- **Step 2**: Execute first action (read files, modify code, etc.)
+- **Step 3**: Assess progress, pivot strategy if needed, update directives
+- **Step N**: Continue until budget exhausted or task complete
+
+The beauty is I'd be **self-managing** the entire execution - deciding when to read files vs modify them, when to change strategy, when the task is complete, all while operating within your defined constraints.
+
+It's like giving me a "cognitive allowance" and letting me spend it optimally to achieve the goal. Want to try it? What would be a good first objective to test this with?
+
+{
+  "cache": {
+    "added": ["bounded-execution", "token-budgeting"],
+    "removed": ["attention-persistence"],
+    "cache": ["cognitive-modeling", "subagent-architecture", "autonomous-harness", "bounded-execution", "token-budgeting"]
+  }
+}

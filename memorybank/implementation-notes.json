@@ -1,0 +1,8 @@
+{
+  "id": "implementation-notes",
+  "label": "Local Memory Implementation",
+  "content": "**Automatic Memory Loading Implementation**:\n\n**Changes Made**:\n1. **Server Enhancement**: Modified `server.ts` to support local memory directory alongside user directory\n   - Added `LOCAL_MEMORY_DIR` pointing to `app/memorybank/`\n   - Enhanced endpoints to handle `local:` and `user:` prefixes\n   - Local memories are read-only, user memories are editable\n\n2. **MemoryBank Class Updates**: Enhanced memory management\n   - Support for readonly local entries vs editable user entries\n   - Separate token counting for local vs user memories\n   - Enhanced trimming logic that preserves local memories\n   - Proper sorting with local entries displayed first\n\n3. **UI Improvements**: Updated ContextPane for better UX\n   - Shows local/user breakdown in memory stats\n   - Prevents editing/deletion of local memories with warnings\n   - Enhanced memory statistics display\n\n**Benefits**:\n- No manual memory management required\n- Shared knowledge base for all conversations\n- Version-controlled memory entries in codebase\n- Clear separation between local and user memories\n\n**Usage**: Simply add `.json` files to `memorybank/` directory and restart app",
+  "tokens": 278,
+  "timestamp": 1710271440000,
+  "category": "code"
+}

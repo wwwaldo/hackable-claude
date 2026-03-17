@@ -1,0 +1,8 @@
+{
+  "id": "react-best-practices",
+  "label": "React & TypeScript Best Practices",
+  "content": "**React Best Practices**:\n\n**Component Design**:\n- Use functional components with hooks\n- Keep components small and focused (single responsibility)\n- Prefer composition over inheritance\n- Use proper prop types with TypeScript interfaces\n\n**State Management**:\n- Use `useState` for local state\n- `useEffect` for side effects with proper dependencies\n- `useCallback` and `useMemo` for performance optimization\n- `useRef` for DOM access and mutable values\n\n**Performance**:\n- Avoid inline object/function creation in renders\n- Use React.memo for expensive components\n- Implement proper key props for lists\n- Lazy load components and code splitting\n\n**TypeScript Integration**:\n- Define clear interfaces for props and state\n- Use generic types for reusable components\n- Leverage union types for controlled variants\n- Use `as const` for better type inference\n\n**Code Organization**:\n- Co-locate related files\n- Extract custom hooks for reusable logic\n- Use consistent naming conventions\n- Separate business logic from UI components",
+  "tokens": 248,
+  "timestamp": 1710271320000,
+  "category": "reference"
+}

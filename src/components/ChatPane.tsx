@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Fact } from '../factcache'
 import { MemoryBank, MemoryEntry } from '../memorybank'
+import { ConceptDisplay } from './ConceptDisplay'
 import type { Theme } from '../theme'
 
 interface Message {
@@ -31,13 +32,14 @@ interface ChatPaneProps {
   memoryBank?:              MemoryBank
   onAddMemory?:             (label: string, content: string, category?: 'conversation' | 'insight' | 'code' | 'reference' | 'other') => Promise<string>
   onSearchMemory?:          (query: string) => MemoryEntry[]
+  recentConcepts?:          string[]
 }
 
 export function ChatPane({
   messages, streaming, streamText, streamThinking, extendedReasoning, onToggleExtendedReasoning,
   onSend, onDeleteMsg, onEditMsg, onClearSession, onClearMessages,
   apiKey, onApiKeySet, model, theme, onToggleTheme,
-  memoryBank, onAddMemory, onSearchMemory,
+  memoryBank, onAddMemory, onSearchMemory, recentConcepts = [],
 }: ChatPaneProps) {
   const [input,      setInput]      = useState('')
   const [editingId,  setEditingId]  = useState<string | null>(null)
@@ -51,6 +53,23 @@ export function ChatPane({
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, streamText, streamThinking])
+
+  // Autofocus the input when component mounts or when API key is available
+  useEffect(() => {
+    if (apiKey && inputRef.current) {
+      inputRef.current.focus()
+    }
+  }, [apiKey])
+
+  // Initial focus on component mount
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (inputRef.current) {
+        inputRef.current.focus()
+      }
+    }, 100)
+    return () => clearTimeout(timer)
+  }, [])
 
   function handleSend() {
     const text = input.trim()
@@ -87,6 +106,9 @@ export function ChatPane({
     await onAddMemory(label, msg.content, category)
   }
 
+  // Dummy concepts for testing - remove this when real data works
+  const testConcepts = ["attention-persistence", "cognitive-modeling", "cache-management", "debugging-strategy", "component-testing"]
+
   return (
     <div style={{
       flex: 1,
@@ -95,6 +117,9 @@ export function ChatPane({
       overflow: 'hidden',
       minWidth: 0,
     }}>
+      {/* Floating concepts display */}
+      <ConceptDisplay concepts={testConcepts} />
+
       {/* Header — WebkitAppRegion makes the whole bar draggable in Electron */}
       <div style={{
         padding: '10px 20px',
@@ -249,7 +274,12 @@ export function ChatPane({
       )}
 
       {/* Messages */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
+      <div style={{ 
+        flex: 1, 
+        overflowY: 'auto', 
+        padding: '20px',
+        paddingTop: 50, // Add padding to account for floating concepts display
+      }}>
         {messages.length === 0 && !streaming && (
           <div style={{
             display: 'flex',

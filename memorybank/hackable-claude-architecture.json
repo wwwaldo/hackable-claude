@@ -1,0 +1,8 @@
+{
+  "id": "hackable-claude-architecture",
+  "label": "Hackable Claude Architecture",
+  "content": "**Hackable Claude** is a self-modifying chat interface with the following architecture:\n\n**Frontend (React + TypeScript + Vite)**:\n- `App.tsx` - Root component, state orchestration, message flow\n- `factcache.ts` - FactCache + Fact classes (context window data model)\n- `api.ts` - Anthropic streaming client, tool definitions, tool executor\n- `persistence.ts` - Session save/load to ~/.hackable-claude/session.json\n- `memorybank.ts` - Memory system with persistent storage\n\n**Components**:\n- `ChatPane.tsx` - Left panel: chat UI, message input/display\n- `ContextPane.tsx` - Right panel: block list, system prompt editor, inject modal\n- `BlockCard.tsx` - Expandable/editable context block card\n- `TokenBar.tsx` - Segmented context window visualization strip\n- `ToolPane.tsx` - Bottom panel: live tool call log\n- `InjectModal.tsx` - Inject context block modal\n\n**Backend (Express on port 3001)**:\n- `server.ts` - File API sidecar, session persistence, memory bank storage\n- Electron wrapper in `electron/main.js`\n\n**Key Features**:\n- Direct file read/write access to own source code\n- Context window visualization and management\n- Memory bank for persistent context across conversations\n- Tool-calling with live execution logs\n- Session persistence and recovery\n- Self-modification capabilities",
+  "tokens": 312,
+  "timestamp": 1710271200000,
+  "category": "code"
+}

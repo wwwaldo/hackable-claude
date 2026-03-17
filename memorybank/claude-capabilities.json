@@ -1,0 +1,8 @@
+{
+  "id": "claude-capabilities",
+  "label": "Claude's Core Capabilities",
+  "content": "**Claude 3.5 Sonnet Capabilities**:\n\n**Code & Development**:\n- Expert-level programming across languages (TypeScript, Python, Rust, etc.)\n- Code review, debugging, and optimization\n- Architecture design and refactoring\n- Understanding complex codebases\n\n**Analysis & Reasoning**:\n- Deep analytical thinking\n- Problem decomposition\n- Pattern recognition\n- Logical reasoning chains\n\n**Writing & Communication**:\n- Technical documentation\n- Clear explanations of complex topics\n- Adaptive communication style\n- Structured responses\n\n**Tool Usage**:\n- File system operations (read, write, list)\n- Real-time code modification\n- Context-aware development\n- Integration with development workflows\n\n**Context Management**:\n- Long conversation memory\n- Context window optimization\n- Information synthesis\n- Relevance filtering\n\n**Creative Problem Solving**:\n- Novel approaches to challenges\n- Creative solutions within constraints\n- Iterative improvement\n- Adaptive strategies",
+  "tokens": 235,
+  "timestamp": 1710271260000,
+  "category": "reference"
+}
