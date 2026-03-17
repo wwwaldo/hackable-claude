@@ -9,6 +9,20 @@ import { streamMessage, MODEL, TOOLS_DEFINITION_TEXT, FILE_API } from './api'
 import { saveSession, loadSession, hydrateCache, clearSession, PersistedMessage } from './persistence'
 import { useTheme } from './theme'
 
+// Autopilot interfaces
+interface AutopilotQueue {
+  prompt: string
+  progressNote: string
+}
+
+interface AutopilotState {
+  active: boolean
+  queue: AutopilotQueue[]
+  stepsRemaining: number
+  totalSteps: number
+  objective: string
+}
+
 export default function App() {
   const [messages, setMessages]               = useState<PersistedMessage[]>([])
   const [streaming, setStreaming]              = useState(false)
@@ -24,6 +38,15 @@ export default function App() {
   const [apiTokens, setApiTokens]              = useState<number | undefined>()
   const [memoryInitialized, setMemoryInitialized] = useState(false)
   const [, forceUpdate] = useState(0)
+
+  // Autopilot state
+  const [autopilot, setAutopilot] = useState<AutopilotState>({
+    active: false,
+    queue: [],
+    stepsRemaining: 0,
+    totalSteps: 0,
+    objective: ''
+  })
 
   const cache      = useRef(new FactCache()).current
   const memoryBank = useRef(new MemoryBank()).current
@@ -83,6 +106,26 @@ export default function App() {
       .filter(msg => msg.role === 'assistant')
       .forEach(msg => conceptTracker.updateFromMessage(msg.content))
   }, [messages, conceptTracker])
+
+  // Autopilot queue processor - automatically send next message when queue has items
+  useEffect(() => {
+    if (autopilot.active && autopilot.queue.length > 0 && !streaming && apiKey) {
+      const nextItem = autopilot.queue[0]
+      
+      // Remove the item from the queue
+      setAutopilot(prev => ({
+        ...prev,
+        queue: prev.queue.slice(1)
+      }))
+
+      // Send the autopilot message after a brief delay for visibility
+      const timer = setTimeout(() => {
+        handleSend(`[AUTOPILOT] ${nextItem.prompt}`)
+      }, 1500)
+
+      return () => clearTimeout(timer)
+    }
+  }, [autopilot.active, autopilot.queue, streaming, apiKey])
 
   // Sync memory entries to cache for context display
   const syncMemoryToCache = useCallback(() => {
@@ -175,6 +218,28 @@ export default function App() {
     refresh()
   }, [messages, syncMessagesToCache])
 
+  // Handle autopilot initialization
+  function handleStartAutopilot(objective: string, steps: number) {
+    setAutopilot({
+      active: true,
+      queue: [],
+      stepsRemaining: steps,
+      totalSteps: steps,
+      objective
+    })
+    
+    // Send the initial autopilot message
+    handleSend(`[AUTOPILOT START] ${objective} (${steps} steps available)`)
+  }
+
+  function handleStopAutopilot() {
+    setAutopilot(prev => ({
+      ...prev,
+      active: false,
+      queue: []
+    }))
+  }
+
   async function handleSend(text: string) {
     if (!text.trim() || streaming || !apiKey) return
 
@@ -231,6 +296,35 @@ export default function App() {
               ts: Date.now(),
             }])
 
+            // Handle autopilot_next tool result
+            if (result.name === 'autopilot_next') {
+              try {
+                const autopilotData = JSON.parse(result.output)
+                const { next_prompt, progress_note, steps_remaining, status } = autopilotData
+                
+                if (status === 'complete' || status === 'error' || steps_remaining <= 0) {
+                  // Stop autopilot
+                  setAutopilot(prev => ({
+                    ...prev,
+                    active: false,
+                    queue: []
+                  }))
+                  console.log(`Autopilot ${status}: ${progress_note}`)
+                } else if (status === 'continue') {
+                  // Add to queue and update remaining steps
+                  setAutopilot(prev => ({
+                    ...prev,
+                    queue: [...prev.queue, { prompt: next_prompt, progressNote: progress_note }],
+                    stepsRemaining: steps_remaining
+                  }))
+                  console.log(`Autopilot queued: ${progress_note}`)
+                }
+              } catch (e) {
+                console.error('Failed to parse autopilot result:', e)
+                setAutopilot(prev => ({ ...prev, active: false, queue: [] }))
+              }
+            }
+
             cache.set(new Fact({
               id: makeId('tool'),
               label: `Tool: ${result.name}`,
@@ -248,7 +342,7 @@ export default function App() {
               cache.set(new Fact({
                 id: makeId('file-summary'),
                 label: `File: ${path}`,
-                content: `**Path:** ${path}\\\\n\\\\n**Summary:** ${summary}`,
+                content: `**Path:** ${path}\n\n**Summary:** ${summary}`,
                 type: 'file-summary',
                 category: 'File Summary',
                 tokens: tokens,
@@ -269,6 +363,10 @@ export default function App() {
           onError: (err) => {
             console.error('Stream error:', err)
             finalText = `Error: ${err.message}`
+            // Stop autopilot on error
+            if (autopilot.active) {
+              setAutopilot(prev => ({ ...prev, active: false, queue: [] }))
+            }
           },
         },
         toolsEnabled && serverOnline,
@@ -278,6 +376,10 @@ export default function App() {
     } catch (error) {
       console.error('Stream error:', error)
       finalText = 'Error: Failed to get response'
+      // Stop autopilot on error
+      if (autopilot.active) {
+        setAutopilot(prev => ({ ...prev, active: false, queue: [] }))
+      }
     }
 
     if (finalText) {
@@ -322,6 +424,8 @@ export default function App() {
     setToolEvents([])
     setApiTokens(undefined)
     conceptTracker.clear()
+    // Stop autopilot when clearing messages
+    setAutopilot(prev => ({ ...prev, active: false, queue: [] }))
   }
 
   function handleClearSession() {
@@ -464,6 +568,9 @@ export default function App() {
           onAddMemory={handleAddMemory}
           onSearchMemory={handleSearchMemory}
           recentConcepts={conceptTracker.getRecentConcepts()}
+          autopilot={autopilot}
+          onStartAutopilot={handleStartAutopilot}
+          onStopAutopilot={handleStopAutopilot}
         />
         <ContextPane
           cache={cache}

@@ -33,6 +33,9 @@ interface ChatPaneProps {
   onAddMemory?:             (label: string, content: string, category?: 'conversation' | 'insight' | 'code' | 'reference' | 'other') => Promise<string>
   onSearchMemory?:          (query: string) => MemoryEntry[]
   recentConcepts?:          string[]
+  autopilot?:               { active: boolean; queue: { prompt: string; progressNote: string }[]; stepsRemaining: number; totalSteps: number; objective: string }
+  onStartAutopilot?:        (objective: string, steps: number) => void
+  onStopAutopilot?:         () => void
 }
 
 export function ChatPane({
@@ -40,8 +43,12 @@ export function ChatPane({
   onSend, onDeleteMsg, onEditMsg, onClearSession, onClearMessages,
   apiKey, onApiKeySet, model, theme, onToggleTheme,
   memoryBank, onAddMemory, onSearchMemory, recentConcepts = [],
+  autopilot, onStartAutopilot, onStopAutopilot,
 }: ChatPaneProps) {
   const [input,      setInput]      = useState('')
+  const [showAutopilot, setShowAutopilot] = useState(false)
+  const [apObjective, setApObjective] = useState('')
+  const [apSteps, setApSteps] = useState(5)
   const [editingId,  setEditingId]  = useState<string | null>(null)
   const [editDraft,  setEditDraft]  = useState('')
   const [apiDraft,   setApiDraft]   = useState(apiKey)
@@ -106,8 +113,12 @@ export function ChatPane({
     await onAddMemory(label, msg.content, category)
   }
 
-  // Dummy concepts for testing - remove this when real data works
-  const testConcepts = ["attention-persistence", "cognitive-modeling", "cache-management", "debugging-strategy", "component-testing"]
+  function handleStartAutopilot() {
+    if (!onStartAutopilot || !apObjective.trim()) return
+    onStartAutopilot(apObjective.trim(), apSteps)
+    setShowAutopilot(false)
+    setApObjective('')
+  }
 
   return (
     <div style={{
@@ -117,8 +128,7 @@ export function ChatPane({
       overflow: 'hidden',
       minWidth: 0,
     }}>
-      {/* Floating concepts display */}
-      <ConceptDisplay concepts={testConcepts} />
+      {recentConcepts.length > 0 && <ConceptDisplay concepts={recentConcepts} />}
 
       {/* Header — WebkitAppRegion makes the whole bar draggable in Electron */}
       <div style={{
@@ -223,6 +233,26 @@ export function ChatPane({
               textTransform: 'uppercase',
             }}
           >reset</button>
+          {onStartAutopilot && (
+            <button
+              onClick={() => autopilot?.active ? onStopAutopilot?.() : setShowAutopilot(true)}
+              style={{
+                fontSize: 10,
+                color: autopilot?.active ? 'var(--danger)' : 'var(--accent2)',
+                border: `1px solid ${autopilot?.active ? 'var(--danger)' : 'var(--accent2)'}`,
+                borderRadius: 3,
+                padding: '3px 10px',
+                letterSpacing: '0.06em',
+                textTransform: 'uppercase',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
+              <span>{autopilot?.active ? '⏹' : '🤖'}</span>
+              <span>{autopilot?.active ? 'Stop' : 'Autopilot'}</span>
+            </button>
+          )}
           <button
             onClick={() => setShowApiKey(v => !v)}
             style={{
@@ -278,7 +308,7 @@ export function ChatPane({
         flex: 1, 
         overflowY: 'auto', 
         padding: '20px',
-        paddingTop: 50, // Add padding to account for floating concepts display
+        paddingTop: recentConcepts.length > 0 ? 50 : 20,
       }}>
         {messages.length === 0 && !streaming && (
           <div style={{
@@ -614,6 +644,122 @@ export function ChatPane({
           shift+enter for newline
         </div>
       </div>
+
+      {/* Autopilot active status bar */}
+      {autopilot?.active && (
+        <div style={{
+          padding: '6px 20px',
+          background: 'var(--accent2)11',
+          borderTop: '1px solid var(--accent2)33',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          flexShrink: 0,
+        }}>
+          <span style={{
+            width: 8, height: 8, borderRadius: '50%',
+            background: 'var(--accent2)',
+            animation: 'pulse 1.5s infinite',
+            flexShrink: 0,
+          }} />
+          <span style={{ fontSize: 10, color: 'var(--accent2)', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+            Autopilot Active
+          </span>
+          <span style={{ fontSize: 10, color: 'var(--text2)' }}>
+            {autopilot.stepsRemaining}/{autopilot.totalSteps} steps remaining
+          </span>
+          {autopilot.queue.length > 0 && (
+            <span style={{ fontSize: 10, color: 'var(--text2)', fontStyle: 'italic', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              next: {autopilot.queue[0]?.progressNote}
+            </span>
+          )}
+          <button
+            onClick={onStopAutopilot}
+            style={{
+              marginLeft: 'auto', fontSize: 10, color: 'var(--danger)',
+              border: '1px solid var(--danger)33', borderRadius: 3,
+              padding: '2px 8px',
+            }}
+          >Stop</button>
+        </div>
+      )}
+
+      {/* Autopilot start modal */}
+      {showAutopilot && (
+        <div
+          onClick={() => setShowAutopilot(false)}
+          style={{
+            position: 'fixed', inset: 0,
+            background: 'rgba(0,0,0,0.7)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 1000, backdropFilter: 'blur(4px)',
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: 'var(--surface)',
+              border: '1px solid var(--accent2)',
+              borderRadius: 8, padding: 24,
+              width: '90%', maxWidth: 480,
+              boxShadow: '0 0 60px rgba(0,0,0,0.8)',
+              animation: 'fadeIn 0.15s ease',
+            }}
+          >
+            <div style={{
+              fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 18,
+              color: 'var(--accent2)', marginBottom: 4, letterSpacing: '-0.02em',
+            }}>
+              🤖 Autopilot
+            </div>
+            <div style={{ fontSize: 10, color: 'var(--text2)', marginBottom: 16 }}>
+              Give Claude an objective and a step budget. It will autonomously work through the task, using tools and queuing its own follow-up prompts.
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text)', display: 'block', marginBottom: 4 }}>
+                Objective
+              </label>
+              <textarea
+                value={apObjective}
+                onChange={e => setApObjective(e.target.value)}
+                placeholder="e.g. Refactor the theme system to support custom color palettes"
+                style={{ width: '100%', minHeight: 80, padding: 8, fontSize: 12, lineHeight: 1.6 }}
+              />
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text)', display: 'block', marginBottom: 4 }}>
+                Max Steps: {apSteps}
+              </label>
+              <input
+                type="range" min={1} max={20} value={apSteps}
+                onChange={e => setApSteps(Number(e.target.value))}
+                style={{ width: '100%' }}
+              />
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--text2)' }}>
+                <span>1</span><span>10</span><span>20</span>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setShowAutopilot(false)} style={{
+                padding: '7px 18px', border: '1px solid var(--border2)',
+                borderRadius: 4, fontSize: 12, color: 'var(--text2)',
+              }}>Cancel</button>
+              <button
+                onClick={handleStartAutopilot}
+                disabled={!apObjective.trim()}
+                style={{
+                  padding: '7px 18px',
+                  background: apObjective.trim() ? 'var(--accent2)' : 'var(--border2)',
+                  borderRadius: 4, fontSize: 12, fontWeight: 700,
+                  fontFamily: 'var(--font-display)',
+                  color: apObjective.trim() ? 'white' : 'var(--text2)',
+                  cursor: apObjective.trim() ? 'pointer' : 'not-allowed',
+                }}
+              >Launch →</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <style>{`
         .msg-actions { opacity: 0; transition: opacity 0.15s; }

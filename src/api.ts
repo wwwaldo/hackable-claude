@@ -74,11 +74,38 @@ Rules:
       required: ['messages', 'reason'],
     },
   },
+  {
+    name: 'autopilot_next',
+    description: 'Generate the next user prompt for autonomous execution. Use this to continue autopilot mode with the next step toward your goal.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        next_prompt: { 
+          type: 'string', 
+          description: 'The user prompt for the next autopilot iteration' 
+        },
+        progress_note: { 
+          type: 'string', 
+          description: 'Brief progress update for the human to track what you\'re doing' 
+        },
+        steps_remaining: { 
+          type: 'number', 
+          description: 'Decremented step count (subtract 1 from current)' 
+        },
+        status: {
+          type: 'string',
+          enum: ['continue', 'complete', 'error'],
+          description: 'Whether to continue autopilot, mark complete, or stop due to error'
+        }
+      },
+      required: ['next_prompt', 'progress_note', 'steps_remaining', 'status']
+    }
+  }
 ] as const
 
 export const TOOLS_DEFINITION_TEXT = JSON.stringify(CODEBASE_TOOLS, null, 2)
 
-export type ToolName = 'list_files' | 'read_file' | 'write_file' | 'list_backups' | 'get_messages' | 'edit_messages'
+export type ToolName = 'list_files' | 'read_file' | 'write_file' | 'list_backups' | 'get_messages' | 'edit_messages' | 'autopilot_next'
 
 export interface ToolCall {
   id:    string
@@ -212,6 +239,16 @@ export async function executeTool(call: ToolCall): Promise<string> {
         })
         if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`)
         return JSON.stringify(await r.json(), null, 2)
+      }
+      case 'autopilot_next': {
+        // This tool doesn't make external API calls - it's handled by the frontend
+        return JSON.stringify({
+          success: true,
+          next_prompt: call.input.next_prompt,
+          progress_note: call.input.progress_note,
+          steps_remaining: call.input.steps_remaining,
+          status: call.input.status
+        })
       }
       default:
         return JSON.stringify({ error: 'Unknown tool' })
