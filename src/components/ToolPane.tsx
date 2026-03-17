@@ -20,14 +20,20 @@ const TOOL_ICONS: Record<string, string> = {
   list_files:   '📁',
   read_file:    '📖',
   write_file:   '✏️',
+  patch_file:   '🩹',
   list_backups: '🗂️',
+  web_search:   '🔍',
+  web_fetch:    '🌐',
 }
 
 const TOOL_COLORS: Record<string, string> = {
   list_files:   '#00d4ff',
   read_file:    '#7c6aff',
   write_file:   '#ff6b35',
+  patch_file:   '#ffcc00',
   list_backups: '#00ff9d',
+  web_search:   '#f59e0b',
+  web_fetch:    '#06b6d4',
 }
 
 export function ToolPane({ events, serverOnline, toolsEnabled, onToggleTools }: ToolPaneProps) {

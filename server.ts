@@ -112,6 +112,123 @@ app.post('/api/file-write', (req, res) => {
   res.json({ ok: true, path: rel, tokens: estimateTokens(content), lines: content.split('\n').length })
 })
 
+app.post('/api/file-patch', (req, res) => {
+  const { path: rel, old_string, new_string, reason } = req.body
+  if (!rel || typeof rel !== 'string') return res.status(400).json({ error: 'path required' })
+  if (typeof old_string !== 'string') return res.status(400).json({ error: 'old_string must be string' })
+  if (typeof new_string !== 'string') return res.status(400).json({ error: 'new_string must be string' })
+
+  const filePath = path.join(__dirname, rel)
+  if (!isAllowed(filePath)) return res.status(403).json({ error: 'Not allowed' })
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: `Not found: ${rel}` })
+
+  const content = fs.readFileSync(filePath, 'utf-8')
+
+  const occurrences = content.split(old_string).length - 1
+  if (occurrences === 0) {
+    return res.status(400).json({ error: 'old_string not found in file', path: rel })
+  }
+  if (occurrences > 1) {
+    return res.status(400).json({ error: `old_string found ${occurrences} times — must be unique. Include more surrounding context.`, path: rel })
+  }
+
+  backup(filePath)
+  const patched = content.replace(old_string, new_string)
+  fs.writeFileSync(filePath, patched, 'utf-8')
+  console.log(`[file-api] patched ${rel} (${reason || 'no reason'})`)
+  res.json({ ok: true, path: rel, tokens: estimateTokens(patched), lines: patched.split('\n').length, reason })
+})
+
+// ── Routes: web access ──────────────────────────────────────
+
+app.post('/api/web-search', async (req, res) => {
+  const { query } = req.body
+  if (!query || typeof query !== 'string') return res.status(400).json({ error: 'query required' })
+
+  try {
+    const encoded = encodeURIComponent(query)
+    const r = await fetch(`https://html.duckduckgo.com/html/?q=${encoded}`, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko)',
+      },
+    })
+    if (!r.ok) throw new Error(`Search returned ${r.status}`)
+    const html = await r.text()
+
+    // Parse DuckDuckGo HTML results
+    const results: { title: string; url: string; snippet: string }[] = []
+    const resultBlocks = html.split('class="result__body"')
+    for (const block of resultBlocks.slice(1, 11)) {
+      const titleMatch = block.match(/class="result__a"[^>]*>([^<]+)</)
+      const urlMatch = block.match(/href="([^"]+)"/)
+      const snippetMatch = block.match(/class="result__snippet"[^>]*>([\s\S]*?)<\/a>/)
+
+      if (titleMatch) {
+        let url = urlMatch?.[1] || ''
+        // DuckDuckGo wraps URLs in a redirect — extract the real URL
+        const uddgMatch = url.match(/uddg=([^&]+)/)
+        if (uddgMatch) url = decodeURIComponent(uddgMatch[1])
+
+        const snippet = (snippetMatch?.[1] || '')
+          .replace(/<[^>]+>/g, '')
+          .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+          .replace(/&quot;/g, '"').replace(/&#x27;/g, "'")
+          .trim()
+
+        results.push({ title: titleMatch[1].trim(), url, snippet })
+      }
+    }
+
+    console.log(`[web-search] "${query}" → ${results.length} results`)
+    res.json({ query, results, count: results.length })
+  } catch (e) {
+    console.error('[web-search] error:', e)
+    res.status(500).json({ error: String(e) })
+  }
+})
+
+app.post('/api/web-fetch', async (req, res) => {
+  const { url } = req.body
+  if (!url || typeof url !== 'string') return res.status(400).json({ error: 'url required' })
+
+  try {
+    const r = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko)',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      },
+      redirect: 'follow',
+      signal: AbortSignal.timeout(10000),
+    })
+    if (!r.ok) throw new Error(`Fetch returned ${r.status}`)
+    const html = await r.text()
+
+    // Strip HTML to plain text
+    let text = html
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .replace(/<nav[\s\S]*?<\/nav>/gi, '')
+      .replace(/<header[\s\S]*?<\/header>/gi, '')
+      .replace(/<footer[\s\S]*?<\/footer>/gi, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/&nbsp;/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    // Truncate to ~8000 chars to stay within reasonable token limits
+    if (text.length > 8000) {
+      text = text.substring(0, 8000) + '\n\n[...truncated]'
+    }
+
+    console.log(`[web-fetch] ${url} → ${text.length} chars`)
+    res.json({ url, content: text, chars: text.length })
+  } catch (e) {
+    console.error('[web-fetch] error:', e)
+    res.status(500).json({ error: String(e) })
+  }
+})
+
 // Legacy GET route
 app.get('/api/files/*', (req, res) => {
   const rel      = (req.params as any)[0] as string

@@ -75,6 +75,48 @@ Rules:
     },
   },
   {
+    name: 'patch_file',
+    description: `Replace a specific string in a file with new content. Much more efficient than write_file for targeted edits — you only need to provide the old and new strings, not the entire file.
+
+Rules:
+- old_string must appear EXACTLY once in the file (include enough surrounding context to make it unique)
+- old_string matching is exact — whitespace, indentation, and newlines must match precisely
+- The file is automatically backed up before patching
+- Use this instead of write_file whenever you're making a targeted edit rather than rewriting the whole file`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        path:       { type: 'string', description: 'Relative file path to patch' },
+        old_string: { type: 'string', description: 'The exact string to find and replace (must be unique in the file)' },
+        new_string: { type: 'string', description: 'The replacement string' },
+        reason:     { type: 'string', description: 'Brief explanation of what changed and why' },
+      },
+      required: ['path', 'old_string', 'new_string', 'reason'],
+    },
+  },
+  {
+    name: 'web_search',
+    description: 'Search the web for current information. Returns a summary of search results including titles, snippets, and URLs. Use this when you need up-to-date information, documentation, or answers that may not be in your training data.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'The search query' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'web_fetch',
+    description: 'Fetch the text content of a URL. Returns the page body as plain text (HTML tags stripped). Use this to read documentation pages, articles, or any web content found via web_search.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'The URL to fetch' },
+      },
+      required: ['url'],
+    },
+  },
+  {
     name: 'autopilot_next',
     description: 'Generate the next user prompt for autonomous execution. Use this to continue autopilot mode with the next step toward your goal.',
     input_schema: {
@@ -105,7 +147,7 @@ Rules:
 
 export const TOOLS_DEFINITION_TEXT = JSON.stringify(CODEBASE_TOOLS, null, 2)
 
-export type ToolName = 'list_files' | 'read_file' | 'write_file' | 'list_backups' | 'get_messages' | 'edit_messages' | 'autopilot_next'
+export type ToolName = 'list_files' | 'read_file' | 'write_file' | 'patch_file' | 'list_backups' | 'get_messages' | 'edit_messages' | 'web_search' | 'web_fetch' | 'autopilot_next'
 
 export interface ToolCall {
   id:    string
@@ -221,6 +263,24 @@ export async function executeTool(call: ToolCall): Promise<string> {
         const d = await r.json()
         return JSON.stringify({ ok: d.ok, tokens: d.tokens, lines: d.lines, reason: call.input.reason })
       }
+      case 'patch_file': {
+        const r = await fetch(`${FILE_API}/api/file-patch`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            path: call.input.path,
+            old_string: call.input.old_string,
+            new_string: call.input.new_string,
+            reason: call.input.reason,
+          }),
+        })
+        if (!r.ok) {
+          const err = await r.text()
+          throw new Error(`HTTP ${r.status}: ${err}`)
+        }
+        const d = await r.json()
+        return JSON.stringify(d)
+      }
       case 'list_backups': {
         const r = await fetch(`${FILE_API}/api/backups`)
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
@@ -236,6 +296,24 @@ export async function executeTool(call: ToolCall): Promise<string> {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ messages: call.input.messages, reason: call.input.reason }),
+        })
+        if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`)
+        return JSON.stringify(await r.json(), null, 2)
+      }
+      case 'web_search': {
+        const r = await fetch(`${FILE_API}/api/web-search`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: call.input.query }),
+        })
+        if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`)
+        return JSON.stringify(await r.json(), null, 2)
+      }
+      case 'web_fetch': {
+        const r = await fetch(`${FILE_API}/api/web-fetch`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: call.input.url }),
         })
         if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`)
         return JSON.stringify(await r.json(), null, 2)
